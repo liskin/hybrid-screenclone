@@ -276,6 +276,9 @@ struct mouse_replayer {
 
 	if ( on )
 	    dst_window.warp_pointer( x - src_screen->info.x_org, y - src_screen->info.y_org );
+	else
+	    // wiggle the cursor a bit to keep screensaver away
+	    dst_window.warp_pointer( x % 50, y % 50 );
 
 	if ( old_on != on ) {
 	    if ( on )
