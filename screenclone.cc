@@ -3,6 +3,7 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,6 +26,9 @@
 #define STR(x) STR2( x )
 #define ERR throw std::runtime_error( std::string() + __FILE__ + ":" + STR( __LINE__ ) + " " + __FUNCTION__ )
 
+#define DBG(x)
+// #define DBG(x) x
+
 struct window;
 struct xinerama_screen;
 
@@ -39,7 +43,7 @@ struct display {
     XEvent next_event();
     int pending();
 
-    template < typename Fun > void record_pointer_events( Fun &callback );
+    template < typename Fun > void record_pointer_events( Fun *callback );
     void select_cursor_input( const window &win );
 
     typedef std::vector< xinerama_screen > screens_vector;
@@ -104,7 +108,7 @@ void record_callback( XPointer priv, XRecordInterceptData *data ) {
 }
 
 template < typename Fun >
-void record_thread( display data, Fun &callback ) {
+void record_thread( display data, Fun *callback ) {
     int fd = ConnectionNumber( data.dpy );
     fd_set fds;
     FD_ZERO( &fds );
@@ -117,7 +121,7 @@ void record_thread( display data, Fun &callback ) {
 }
 
 template < typename Fun >
-void display::record_pointer_events( Fun &callback ) {
+void display::record_pointer_events( Fun *callback ) {
     display data = clone();
 
     XRecordRange *rr = XRecordAllocRange();
@@ -133,7 +137,7 @@ void display::record_pointer_events( Fun &callback ) {
     XSync( dpy, false );
     XSync( data.dpy, false );
 
-    if ( !XRecordEnableContextAsync( data.dpy, rc, &record_callback< Fun >, (XPointer) &callback ) )
+    if ( !XRecordEnableContextAsync( data.dpy, rc, &record_callback< Fun >, (XPointer) callback ) )
 	ERR;
 
     std::thread( &record_thread< Fun >, data, callback ).detach();
@@ -232,6 +236,8 @@ struct image_replayer {
 		dst_image->width, dst_image->height, False );
 	XSync( dst->dpy, false );
 
+	DBG( std::cout << "damaged" << std::endl );
+
 	damaged = false;
     }
 
@@ -246,6 +252,7 @@ struct mouse_replayer {
     window dst_window;
     Cursor invisibleCursor;
     volatile bool on;
+    std::recursive_mutex cursor_mutex;
 
     mouse_replayer( const display &_src, const display &_dst, const xinerama_screen &_src_screen )
 	: src( _src ), dst( _dst), src_screen( _src_screen ), dst_window( dst.root() )
@@ -277,6 +284,8 @@ struct mouse_replayer {
     }
 
     void mouse_moved( int x, int y ) {
+	std::lock_guard< std::recursive_mutex > guard( cursor_mutex );
+
 	bool old_on = on;
 	on = src_screen.in_screen( x, y );
 
@@ -294,9 +303,13 @@ struct mouse_replayer {
 	}
 
 	XSync( dst.dpy, false );
+
+	DBG( std::cout << "mouse moved" << std::endl );
     }
 
     void cursor_changed() {
+	std::lock_guard< std::recursive_mutex > guard( cursor_mutex );
+
 	if ( !on )
 	    return;
 
@@ -320,8 +333,7 @@ struct mouse_replayer {
 
 	XSync( dst.dpy, false );
 
-	// A stupid hack to avoid race condition between the two threads.
-	on = true;
+	DBG( std::cout << "cursor changed" << std::endl );
     }
 };
 
@@ -375,7 +387,7 @@ int main( int argc, char *argv[] )
     window root = src.root();
     root.create_damage();
 
-    src.record_pointer_events( mouse );
+    src.record_pointer_events( &mouse );
     src.select_cursor_input( root );
 
     for ( ;; ) {
