@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -30,6 +31,7 @@ struct xinerama_screen;
 struct display {
     Display *dpy;
     int damage_event, damage_error;
+    int xfixes_event, xfixes_error;
 
     display( const std::string &name );
     display clone() const;
@@ -38,6 +40,7 @@ struct display {
     int pending();
 
     template < typename Fun > void record_pointer_events( Fun &callback );
+    void select_cursor_input( const window &win );
 
     typedef std::vector< xinerama_screen > screens_vector;
     screens_vector xinerama_screens();
@@ -71,6 +74,8 @@ display::display( const std::string &name ) {
     if ( !dpy ) ERR;
 
     if ( !XDamageQueryExtension( dpy, &damage_event, &damage_error ) )
+	ERR;
+    if ( !XFixesQueryExtension( dpy, &xfixes_event, &xfixes_error ) )
 	ERR;
 }
 
@@ -132,6 +137,10 @@ void display::record_pointer_events( Fun &callback ) {
 	ERR;
 
     std::thread( &record_thread< Fun >, data, callback ).detach();
+}
+
+void display::select_cursor_input( const window &win ) {
+    XFixesSelectCursorInput( dpy, win.win, XFixesDisplayCursorNotifyMask );
 }
 
 display::screens_vector display::xinerama_screens() {
@@ -232,14 +241,14 @@ struct image_replayer {
 };
 
 struct mouse_replayer {
-    const display *src, *dst;
-    const xinerama_screen *src_screen;
+    const display src, dst;
+    const xinerama_screen src_screen;
     window dst_window;
-    Cursor invisibleCursor, normalCursor;
-    bool on;
+    Cursor invisibleCursor;
+    volatile bool on;
 
     mouse_replayer( const display &_src, const display &_dst, const xinerama_screen &_src_screen )
-	: src( &_src ), dst( &_dst), src_screen( &_src_screen ), dst_window( dst->root() )
+	: src( _src ), dst( _dst), src_screen( _src_screen ), dst_window( dst.root() )
 	, on( false )
     {
 	// create invisible cursor
@@ -248,12 +257,9 @@ struct mouse_replayer {
 	static char noData[] = { 0,0,0,0,0,0,0,0 };
 	black.red = black.green = black.blue = 0;
 
-	bitmapNoData = XCreateBitmapFromData( dst->dpy, dst_window.win, noData, 8, 8 );
-	invisibleCursor = XCreatePixmapCursor( dst->dpy, bitmapNoData, bitmapNoData,
+	bitmapNoData = XCreateBitmapFromData( dst.dpy, dst_window.win, noData, 8, 8 );
+	invisibleCursor = XCreatePixmapCursor( dst.dpy, bitmapNoData, bitmapNoData,
 		&black, &black, 0, 0);
-
-	// create normal cursor
-	normalCursor = XcursorShapeLoadCursor( dst->dpy, XC_left_ptr );
 
 	dst_window.define_cursor( invisibleCursor );
     }
@@ -272,39 +278,50 @@ struct mouse_replayer {
 
     void mouse_moved( int x, int y ) {
 	bool old_on = on;
-	on = src_screen->in_screen( x, y );
+	on = src_screen.in_screen( x, y );
 
 	if ( on )
-	    dst_window.warp_pointer( x - src_screen->info.x_org, y - src_screen->info.y_org );
+	    dst_window.warp_pointer( x - src_screen.info.x_org, y - src_screen.info.y_org );
 	else
 	    // wiggle the cursor a bit to keep screensaver away
 	    dst_window.warp_pointer( x % 50, y % 50 );
 
 	if ( old_on != on ) {
 	    if ( on )
-		dst_window.define_cursor( normalCursor );
+		cursor_changed();
 	    else
 		dst_window.define_cursor( invisibleCursor );
 	}
 
-	if ( on || old_on != on )
-	    XSync( dst->dpy, false );
+	XSync( dst.dpy, false );
+    }
 
-	// commented out because it was too slow
-	/*
-	XFixesCursorImage *cur = XFixesGetCursorImage( src->dpy );
-	XcursorImage *image = XcursorImageCreate( 0, 0 );
-	image->width = cur->width;
-	image->height = cur->height;
-	image->xhot = cur->xhot;
-	image->yhot = cur->yhot;
-	image->pixels = (unsigned int *) cur->pixels; // FIXME: 64b unsafe
-	Cursor cursor = XcursorImageLoadCursor( dst->dpy, image );
-	XcursorImageDestroy( image );
-	XDefineCursor( dst->dpy, dst_window.win, cursor );
-	XFreeCursor( dst->dpy, cursor );
-	XFree(cur);
-	*/
+    void cursor_changed() {
+	if ( !on )
+	    return;
+
+	XFixesCursorImage *cur;
+	XcursorImage image;
+	Cursor cursor;
+
+	cur = XFixesGetCursorImage( src.dpy );
+	memset( &image, 0, sizeof( image ) );
+	image.width  = cur->width;
+	image.height = cur->height;
+	image.size   = std::max( image.width, image.height );
+	image.xhot   = cur->xhot;
+	image.yhot   = cur->yhot;
+	image.pixels = (unsigned int *) cur->pixels; // FIXME: 64b unsafe
+	cursor = XcursorImageLoadCursor( dst.dpy, &image );
+	XFree( cur );
+
+	XDefineCursor( dst.dpy, dst_window.win, cursor );
+	XFreeCursor( dst.dpy, cursor );
+
+	XSync( dst.dpy, false );
+
+	// A stupid hack to avoid race condition between the two threads.
+	on = true;
     }
 };
 
@@ -351,13 +368,15 @@ int main( int argc, char *argv[] )
 	ERR;
     auto &screen = screens[ screen_number ];
 
-    mouse_replayer mouse( src, dst, screen );
+    // Clone src not to fight with the blocking loop.
+    mouse_replayer mouse( src.clone(), dst, screen );
     image_replayer image( src, dst, screen );
-
-    src.record_pointer_events( mouse );
 
     window root = src.root();
     root.create_damage();
+
+    src.record_pointer_events( mouse );
+    src.select_cursor_input( root );
 
     for ( ;; ) {
 	do {
@@ -365,6 +384,8 @@ int main( int argc, char *argv[] )
 	    if ( e.type == src.damage_event + XDamageNotify ) {
 		const XDamageNotifyEvent &de = * (const XDamageNotifyEvent *) &e;
 		image.damage( de.area );
+	    } else if ( e.type == src.xfixes_event + XFixesCursorNotify ) {
+		mouse.cursor_changed();
 	    }
 	} while ( src.pending() );
 
