@@ -1,0 +1,27 @@
+# /usr/bin/X -ac -audit 0 -config /etc/X11/xorg.conf.nvidia -sharevts -modulepath /usr/lib/nvidia/current,/usr/lib/xorg/modules -nolisten tcp -noreset :1
+#  or
+# /usr/bin/X -auth /var/lib/gdm/:0.Xauth -audit 0 -config /etc/X11/xorg.conf.nvidia -sharevts -modulepath /usr/lib/nvidia/current,/usr/lib/xorg/modules -nolisten tcp -noreset :1
+
+Section "ServerLayout"
+	Identifier     "Layout0"
+	Screen         "Screen0"
+	Option         "AutoAddDevices" "false"
+EndSection
+
+Section "Device"
+	Identifier     "Device0"
+	Driver         "nvidia"
+	VendorName     "NVIDIA Corporation"
+	BusID          "PCI:1:0:0"
+	#Option         "ConnectedMonitor" "DFP"
+	Option         "DPI" "96 x 96"
+EndSection
+
+Section "Screen"
+	Identifier     "Screen0"
+	Device         "Device0"
+	DefaultDepth    24
+	SubSection     "Display"
+		Depth       24
+	EndSubSection
+EndSection
