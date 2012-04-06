@@ -324,7 +324,17 @@ struct mouse_replayer {
 	image.size   = std::max( image.width, image.height );
 	image.xhot   = cur->xhot;
 	image.yhot   = cur->yhot;
-	image.pixels = (unsigned int *) cur->pixels; // FIXME: 64b unsafe
+
+	if ( 0 && sizeof( * image.pixels ) == sizeof( * cur->pixels ) ) {
+	    // 32-bit machines where int is long
+	    image.pixels = (unsigned int *) cur->pixels;
+	} else {
+	    image.pixels = (unsigned int *) alloca(
+		image.width * image.height * sizeof( unsigned int ) );
+	    for ( unsigned i = 0; i < image.width * image.height; ++i )
+		image.pixels[ i ] = cur->pixels[ i ];
+	}
+
 	cursor = XcursorImageLoadCursor( dst.dpy, &image );
 	XFree( cur );
 
