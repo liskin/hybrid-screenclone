@@ -1,0 +1,8 @@
+#!/bin/bash
+
+xauth remove :1
+xauth list :0 | awk '{ print "xauth add :1", $2, $3 }' | sh
+sudo /root/tp420_nvidia.sh on
+xinit /home/tomi/bin/screenclone -s $DISPLAY -d :1 "$@" -- /home/tomi/bin/sudoX :1 -audit 0 -auth /var/lib/gdm/:0.Xauth -config /home/tomi/src/hybrid-screenclone/xorg.conf.nvidia -sharevts -modulepath /usr/lib/nvidia/current,/usr/lib/xorg/modules -nolisten tcp -noreset
+sleep 1
+sudo /root/tp420_nvidia.sh off
