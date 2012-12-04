@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -11,6 +12,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/select.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <X11/Xcursor/Xcursor.h>
@@ -30,6 +32,20 @@
 # define DBG(x)
 #else // debugging on
 # define DBG(x) x
+#endif
+
+uint64_t microtime() {
+    struct timeval tv;
+    gettimeofday( &tv, NULL );
+    return tv.tv_sec * 1000000 + tv.tv_usec;
+}
+
+#if 1 // time tracing off
+# define TC(x) x
+#else // time tracing on
+# define TC(x) \
+    ({ uint64_t t1, t2; t1 = microtime(); auto ret = ( x ); t2 = microtime(); \
+    printf( "%15llu - %5d: %s\n", t2 - t1, __LINE__, #x ); ret; })
 #endif
 
 struct window;
@@ -175,11 +191,11 @@ void window::clear_damage() {
 }
 
 void window::warp_pointer( int x, int y ) {
-    XWarpPointer( d->dpy, None, win, 0, 0, 0, 0, x, y );
+    TC( XWarpPointer( d->dpy, None, win, 0, 0, 0, 0, x, y ) );
 }
 
 void window::define_cursor( Cursor c ) {
-    XDefineCursor( d->dpy, win, c );
+    TC( XDefineCursor( d->dpy, win, c ) );
 }
 
 bool xinerama_screen::in_screen( int x, int y ) const {
@@ -233,11 +249,11 @@ struct image_replayer {
 	if ( !damaged )
 	    return;
 
-	XShmGetImage( src->dpy, src_window.win, src_image,
-		src_screen->info.x_org, src_screen->info.y_org, AllPlanes);
-	XShmPutImage( dst->dpy, dst_window.win, dst_gc, dst_image, 0, 0, 0, 0,
-		dst_image->width, dst_image->height, False );
-	XFlush( dst->dpy );
+	TC( XShmGetImage( src->dpy, src_window.win, src_image,
+		src_screen->info.x_org, src_screen->info.y_org, AllPlanes) );
+	TC( XShmPutImage( dst->dpy, dst_window.win, dst_gc, dst_image, 0, 0, 0, 0,
+		dst_image->width, dst_image->height, False ) );
+	TC( XFlush( dst->dpy ) );
 
 	DBG( std::cout << "damaged" << std::endl );
 
@@ -305,7 +321,7 @@ struct mouse_replayer {
 		dst_window.define_cursor( invisibleCursor );
 	}
 
-	XFlush( dst.dpy );
+	TC( XFlush( dst.dpy ) );
 
 	DBG( std::cout << "mouse moved" << std::endl );
     }
@@ -320,7 +336,7 @@ struct mouse_replayer {
 	XcursorImage image;
 	Cursor cursor;
 
-	cur = XFixesGetCursorImage( src.dpy );
+	cur = TC( XFixesGetCursorImage( src.dpy ) );
 	memset( &image, 0, sizeof( image ) );
 	image.width  = cur->width;
 	image.height = cur->height;
@@ -338,13 +354,13 @@ struct mouse_replayer {
 		image.pixels[ i ] = cur->pixels[ i ];
 	}
 
-	cursor = XcursorImageLoadCursor( dst.dpy, &image );
+	cursor = TC( XcursorImageLoadCursor( dst.dpy, &image ) );
 	XFree( cur );
 
-	XDefineCursor( dst.dpy, dst_window.win, cursor );
+	TC( XDefineCursor( dst.dpy, dst_window.win, cursor ) );
 	XFreeCursor( dst.dpy, cursor );
 
-	XFlush( dst.dpy );
+	TC( XFlush( dst.dpy ) );
 
 	DBG( std::cout << "cursor changed" << std::endl );
     }
