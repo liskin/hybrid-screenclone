@@ -26,8 +26,11 @@
 #define STR(x) STR2( x )
 #define ERR throw std::runtime_error( std::string() + __FILE__ + ":" + STR( __LINE__ ) + " " + __FUNCTION__ )
 
-#define DBG(x)
-// #define DBG(x) x
+#if 1 // debugging off
+# define DBG(x)
+#else // debugging on
+# define DBG(x) x
+#endif
 
 struct window;
 struct xinerama_screen;
