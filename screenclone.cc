@@ -234,7 +234,7 @@ struct image_replayer {
 		src_screen->info.x_org, src_screen->info.y_org, AllPlanes);
 	XShmPutImage( dst->dpy, dst_window.win, dst_gc, dst_image, 0, 0, 0, 0,
 		dst_image->width, dst_image->height, False );
-	XSync( dst->dpy, false );
+	XFlush( dst->dpy );
 
 	DBG( std::cout << "damaged" << std::endl );
 
@@ -302,7 +302,7 @@ struct mouse_replayer {
 		dst_window.define_cursor( invisibleCursor );
 	}
 
-	XSync( dst.dpy, false );
+	XFlush( dst.dpy );
 
 	DBG( std::cout << "mouse moved" << std::endl );
     }
@@ -341,7 +341,7 @@ struct mouse_replayer {
 	XDefineCursor( dst.dpy, dst_window.win, cursor );
 	XFreeCursor( dst.dpy, cursor );
 
-	XSync( dst.dpy, false );
+	XFlush( dst.dpy );
 
 	DBG( std::cout << "cursor changed" << std::endl );
     }
