@@ -337,6 +337,9 @@ struct mouse_replayer {
 		Cursor cursor;
 
 		cur = TC( XFixesGetCursorImage( src.dpy ) );
+		if ( !cur )
+			return;
+
 		memset( &image, 0, sizeof( image ) );
 		image.width  = cur->width;
 		image.height = cur->height;
