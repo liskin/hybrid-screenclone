@@ -1,3 +1,7 @@
+This program has been obsoleted by xserver-xorg-video-intel 2.99.
+
+http://cgit.freedesktop.org/xorg/driver/xf86-video-intel/tree/tools/
+
 # hybrid-screenclone
 
 This is a reimplementation of [hybrid-windump][hybrid-windump] with the
